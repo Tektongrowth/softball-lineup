@@ -1,0 +1,7 @@
+name = "softball-lineup"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[[kv_namespaces]]
+binding = "LINEUP_SYNC"
+id = "cf13e643dfcd4e108927964a3b8d3759"

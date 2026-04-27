@@ -1,128 +1,286 @@
-import { useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocalStorage } from './hooks/useLocalStorage'
-import { DEFAULT_LINEUPS } from './data/lineups'
-import { PLAYERS } from './data/config'
-import { validateGame, getInningCounts } from './engine/rules'
-import { TeamCard } from './components/TeamCard'
-import { Team3Card } from './components/Team3Card'
-import { CoveragePanel } from './components/CoveragePanel'
+import { INNINGS, INNING_LABELS } from './data/config'
+import { DEFAULT_PLAYERS, DEFAULT_DEPTH_CHARTS, DEFAULT_RULES, DEFAULT_LINEUP } from './data/defaultState'
+import { autoAssign, getBench, getInningCounts, calcBalance } from './engine/autoAssign'
+import { validateLineup } from './engine/validate'
+import { Diamond } from './components/Diamond'
+import { SettingsScreen } from './components/settings/SettingsScreen'
+import { GameLogModal } from './components/GameLogModal'
 
-const GAMES = ['game1', 'game2', 'game3', 'game4']
-const GAME_LABELS = ['Game 1', 'Game 2', 'Game 3', 'Game 4']
+async function fetchSync(teamCode) {
+  const res = await fetch(`/api/sync?team=${encodeURIComponent(teamCode)}`)
+  if (!res.ok) return null
+  const data = await res.json()
+  return Object.keys(data).length ? data : null
+}
 
-function getBench(gameLineup, inningKey) {
-  const active = new Set(Object.values(gameLineup[inningKey] || {}).filter(Boolean))
-  return PLAYERS.map(p => p.id).filter(p => !active.has(p))
+async function pushSync(teamCode, payload) {
+  await fetch(`/api/sync?team=${encodeURIComponent(teamCode)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }
 
 export default function App() {
-  const [activeGame, setActiveGame] = useLocalStorage('sb-activeGame', 'game1')
-  const [lineups, setLineups] = useLocalStorage('sb-lineups', DEFAULT_LINEUPS)
+  const [players,      setPlayers]      = useLocalStorage('sl-players',      DEFAULT_PLAYERS)
+  const [depthCharts,  setDepthCharts]  = useLocalStorage('sl-depth-charts',  DEFAULT_DEPTH_CHARTS)
+  const [rules,        setRules]        = useLocalStorage('sl-rules',         DEFAULT_RULES)
+  const [lineup,       setLineup]       = useLocalStorage('sl-lineup',        DEFAULT_LINEUP)
+  const [gameHistory,  setGameHistory]  = useLocalStorage('sl-game-history',  [])
+  const [teamCode,     setTeamCode]     = useLocalStorage('sl-team-code',     '')
 
-  const gameLineup = lineups[activeGame]
+  const [activeInning,  setActiveInning]  = useState('inn1')
+  const [showSettings,  setShowSettings]  = useState(false)
+  const [showGameLog,   setShowGameLog]   = useState(false)
+  const [syncStatus,    setSyncStatus]    = useState('')
+  const syncTimer = useRef(null)
 
-  const violations = useMemo(() => validateGame(gameLineup), [gameLineup])
-  const inningCounts = useMemo(() => getInningCounts(gameLineup), [gameLineup])
+  const showSync = (msg) => {
+    setSyncStatus(msg)
+    clearTimeout(syncTimer.current)
+    syncTimer.current = setTimeout(() => setSyncStatus(''), 3000)
+  }
 
-  const updatePosition = useCallback((inningKey, pos, player) => {
-    setLineups(prev => ({
+  useEffect(() => {
+    if (!teamCode) return
+    fetchSync(teamCode).then(data => {
+      if (!data) return
+      if (data.players)     setPlayers(data.players)
+      if (data.depthCharts) setDepthCharts(data.depthCharts)
+      if (data.rules)       setRules(data.rules)
+      if (data.gameHistory) setGameHistory(data.gameHistory)
+      if (data.lineup)      setLineup(data.lineup)
+      showSync('Synced')
+    }).catch(() => {})
+  }, [teamCode])
+
+  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, lineup })
+
+  const pushData = async (overrides = {}) => {
+    if (!teamCode) return
+    try {
+      await pushSync(teamCode, { ...syncPayload(), ...overrides })
+      showSync('Saved')
+    } catch { showSync('Sync failed') }
+  }
+
+  const violations = validateLineup(lineup, players, depthCharts, rules)
+  const bench      = getBench(lineup, players)
+  const counts     = getInningCounts(lineup, players)
+  const balance    = calcBalance(players, gameHistory)
+
+  const handleGenerate = () => {
+    setLineup(autoAssign(players, depthCharts, rules, gameHistory))
+  }
+
+  const handlePositionUpdate = (pos, player) => {
+    setLineup(prev => ({
       ...prev,
-      [activeGame]: {
-        ...prev[activeGame],
-        [inningKey]: { ...prev[activeGame][inningKey], [pos]: player || undefined },
-      },
+      [activeInning]: { ...prev[activeInning], [pos]: player || undefined },
     }))
-  }, [activeGame, setLineups])
+  }
 
-  const resetGame = useCallback(() => {
-    if (!window.confirm(`Reset ${GAME_LABELS[GAMES.indexOf(activeGame)]} to default lineup?`)) return
-    setLineups(prev => ({ ...prev, [activeGame]: DEFAULT_LINEUPS[activeGame] }))
-  }, [activeGame, setLineups])
+  const handleLockGame = ({ clear }) => {
+    const gameNum  = gameHistory.length + 1
+    const today    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    const entry    = {
+      id:     `game-${Date.now()}`,
+      label:  `Game ${gameNum}`,
+      date:   today,
+      counts: { ...counts },
+    }
+    const newHistory = [...gameHistory, entry]
+    const newLineup  = clear ? DEFAULT_LINEUP : lineup
+    setGameHistory(newHistory)
+    if (clear) setLineup(DEFAULT_LINEUP)
+    setShowGameLog(false)
+    pushData({ gameHistory: newHistory, lineup: newLineup })
+  }
+
+  const team3Active = activeInning === 'inn3' || activeInning === 'inn4'
+  const lockEnabled = rules.find(r => r.id === 'team3-lock')?.enabled
+  const team3Locks  = (team3Active && lockEnabled)
+    ? Object.fromEntries(
+        [['A', '3B'], ['B', 'SS'], ['C', '2B'], ['D', '1B']]
+          .map(([g, pos]) => [pos, depthCharts[g]?.[0]])
+          .filter(([, v]) => v)
+      )
+    : null
 
   const errorCount = violations.filter(v => v.severity === 'error').length
-  const warnCount = violations.filter(v => v.severity === 'warning').length
+  const warnCount  = violations.filter(v => v.severity === 'warning').length
+  const hasHistory = gameHistory.length > 0
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white max-w-lg mx-auto">
-      {/* Header */}
-      <header className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-lg">⚾</span>
-          <span className="font-bold text-white text-sm tracking-wide">Lineup Manager</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {errorCount > 0 && (
-            <span className="text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full px-2 py-0.5">
-              {errorCount} error{errorCount > 1 ? 's' : ''}
+          <span className="font-bold text-white text-lg">⚾ Lineup</span>
+          {hasHistory && (
+            <span className="text-xs text-slate-500 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
+              Game {gameHistory.length + 1}
             </span>
           )}
-          {warnCount > 0 && (
-            <span className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full px-2 py-0.5">
-              {warnCount} warn
+          {syncStatus && (
+            <span className="text-xs text-emerald-400">{syncStatus}</span>
+          )}
+          {(errorCount > 0 || warnCount > 0) && (
+            <span className="text-xs flex items-center gap-1.5">
+              {errorCount > 0 && <span className="text-rose-400">{errorCount} err</span>}
+              {warnCount  > 0 && <span className="text-amber-400">{warnCount} warn</span>}
             </span>
           )}
+        </div>
+        <div className="flex items-center gap-2">
           <button
-            onClick={resetGame}
-            className="text-xs text-slate-500 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1 transition-colors"
+            onClick={() => setShowGameLog(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 text-sm border border-emerald-700/40 transition-colors"
           >
-            Reset
+            Lock Game
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Settings
           </button>
         </div>
-      </header>
-
-      {/* Game selector */}
-      <div className="flex gap-1.5 px-3 pt-3">
-        {GAMES.map((g, i) => (
-          <button
-            key={g}
-            onClick={() => setActiveGame(g)}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all
-              ${activeGame === g
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
-                : 'bg-slate-800/60 text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            {GAME_LABELS[i]}
-          </button>
-        ))}
       </div>
 
-      {/* Inning labels */}
-      <div className="flex gap-1.5 px-3 mt-1.5">
-        <div className="flex-1 text-center text-[10px] text-slate-600">Inn 1</div>
-        <div className="flex-1 text-center text-[10px] text-slate-600">Inn 2</div>
-        <div className="flex-1 text-center text-[10px] text-slate-600">Inn 3–4</div>
-        <div className="flex-1 text-center text-[10px] text-slate-600">steal / machine</div>
+      {/* Inning tabs */}
+      <div className="flex bg-slate-900 border-b border-slate-800 flex-shrink-0">
+        {INNINGS.map(inn => {
+          const innViolations = violations.filter(v => v.inning === inn)
+          const hasError = innViolations.some(v => v.severity === 'error')
+          const hasWarn  = innViolations.some(v => v.severity === 'warning')
+          return (
+            <button key={inn} onClick={() => setActiveInning(inn)}
+              className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 relative ${
+                activeInning === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+              }`}
+            >
+              {INNING_LABELS[inn]}
+              {(hasError || hasWarn) && (
+                <span className={`absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full ${hasError ? 'bg-rose-500' : 'bg-amber-400'}`} />
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      {/* Team cards */}
-      <div className="p-3 space-y-3">
-        <TeamCard
-          label="Team 1 — Inning 1"
-          inningKey="inn1"
-          lineup={gameLineup.inn1}
+      {/* Diamond */}
+      <div className="px-3 pt-3 pb-2 max-w-lg mx-auto w-full">
+        <Diamond
+          inningKey={activeInning}
+          lineup={lineup[activeInning] || {}}
+          players={players}
+          depthCharts={depthCharts}
+          rules={rules}
           violations={violations}
-          bench={getBench(gameLineup, 'inn1')}
-          onUpdate={(pos, player) => updatePosition('inn1', pos, player)}
+          onUpdate={handlePositionUpdate}
+          team3Locks={team3Locks}
         />
-        <TeamCard
-          label="Team 2 — Inning 2"
-          inningKey="inn2"
-          lineup={gameLineup.inn2}
-          violations={violations}
-          bench={getBench(gameLineup, 'inn2')}
-          onUpdate={(pos, player) => updatePosition('inn2', pos, player)}
-        />
-        <Team3Card
-          inn3={gameLineup.inn3}
-          inn4={gameLineup.inn4}
-          violations={violations}
-          bench3={getBench(gameLineup, 'inn3')}
-          bench4={getBench(gameLineup, 'inn4')}
-          onUpdate={updatePosition}
-        />
-
-        <CoveragePanel inningCounts={inningCounts} gameViolations={violations} />
       </div>
+
+      {/* Footer panels */}
+      <div className="px-4 pb-6 space-y-3 max-w-lg mx-auto w-full">
+        {/* Bench */}
+        {bench[activeInning]?.length > 0 && (
+          <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeInning]}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {bench[activeInning].map(pid => (
+                <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{pid}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Innings played + carry-over balance */}
+        <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-slate-500 uppercase tracking-wider">Innings played</div>
+            {hasHistory && <div className="text-xs text-slate-600">balance from {gameHistory.length} prev {gameHistory.length === 1 ? 'game' : 'games'}</div>}
+          </div>
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+            {players.map(p => {
+              const n   = counts[p.id] ?? 0
+              const bal = balance[p.id] ?? 0
+              const showBal = hasHistory
+              return (
+                <div key={p.id} className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1.5">
+                  <span className="text-white text-xs flex-1 truncate">{p.id}</span>
+                  <span className={`text-xs font-bold tabular-nums ${
+                    n === 0 ? 'text-slate-600' : n < 2 ? 'text-amber-400' : n >= 4 ? 'text-emerald-400' : 'text-slate-300'
+                  }`}>{n}</span>
+                  {showBal && (
+                    <span className={`text-[10px] tabular-nums w-8 text-right ${
+                      bal > 0.8 ? 'text-amber-400' : bal < -0.8 ? 'text-sky-400' : 'text-slate-600'
+                    }`}>
+                      {bal > 0.05 ? `+${bal.toFixed(1)}` : bal < -0.05 ? bal.toFixed(1) : ''}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {hasHistory && (
+            <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-700">
+              <span><span className="text-amber-400">+X</span> = over-played, engine reduces next game</span>
+              <span><span className="text-sky-400">−X</span> = under-played, engine boosts next game</span>
+            </div>
+          )}
+        </div>
+
+        {/* Violations */}
+        {violations.length > 0 && (
+          <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-1">
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Violations</div>
+            {violations.map((v, i) => (
+              <div key={i} className={`text-xs px-2 py-1.5 rounded-lg ${
+                v.severity === 'error' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-400/10 text-amber-400'
+              }`}>
+                {v.inning ? `Inn ${v.inning.replace('inn', '')}: ` : ''}{v.message}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <SettingsScreen
+          players={players}
+          depthCharts={depthCharts}
+          rules={rules}
+          teamCode={teamCode}
+          onPlayersChange={setPlayers}
+          onDepthChartsChange={setDepthCharts}
+          onRulesChange={setRules}
+          onTeamCodeChange={setTeamCode}
+          onGenerate={handleGenerate}
+          onSync={() => pushData()}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Game log modal */}
+      {showGameLog && (
+        <GameLogModal
+          players={players}
+          counts={counts}
+          gameHistory={gameHistory}
+          onLock={handleLockGame}
+          onClose={() => setShowGameLog(false)}
+        />
+      )}
     </div>
   )
 }
