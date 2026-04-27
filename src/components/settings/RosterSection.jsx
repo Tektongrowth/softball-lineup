@@ -45,14 +45,15 @@ export function RosterSection({ players, onChange }) {
         const isEditing = editing === p.id
 
         return (
-          <div key={p.id} className="bg-slate-800 rounded-xl overflow-hidden">
+          <div key={p.id} className={`bg-slate-800 rounded-xl overflow-hidden ${p.absent ? 'opacity-60' : ''}`}>
             {/* Row */}
             <button
               onClick={() => setEditing(isEditing ? null : p.id)}
               className="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-slate-700/50 transition-colors"
             >
               <span className={`w-3 h-3 rounded-full flex-shrink-0 ${colors ? colors.dot : 'bg-slate-500'}`} />
-              <span className="text-white font-medium flex-1">{p.id}</span>
+              <span className={`font-medium flex-1 ${p.absent ? 'text-slate-400 line-through' : 'text-white'}`}>{p.id}</span>
+              {p.absent && <span className="text-[10px] text-rose-300 bg-rose-500/20 border border-rose-500/40 rounded px-1.5 py-0.5">OUT</span>}
               {p.floater && <span className="text-[10px] text-slate-400 bg-slate-700 rounded px-1.5 py-0.5">floater</span>}
               {p.group && <span className={`text-[10px] rounded px-1.5 py-0.5 border ${colors?.label}`}>{GROUPS.find(g => g.id === p.group)?.label}</span>}
               <span className="text-slate-600 text-sm">{isEditing ? '▲' : '▼'}</span>
@@ -61,9 +62,22 @@ export function RosterSection({ players, onChange }) {
             {/* Expanded editor */}
             {isEditing && (
               <div className="px-3 pb-3 space-y-3 border-t border-slate-700">
+                {/* Game availability */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => updatePlayer(p.id, { absent: !p.absent })}
+                    className={`w-full py-2 rounded-lg text-xs border transition-all
+                      ${p.absent
+                        ? 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                        : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'}`}
+                  >
+                    {p.absent ? "✓ Didn't show up — excluded from this game" : "Didn't show up to this game"}
+                  </button>
+                </div>
+
                 {/* Group selector */}
                 <div>
-                  <div className="text-xs text-slate-500 mb-2 pt-2">Position Group</div>
+                  <div className="text-xs text-slate-500 mb-2">Position Group</div>
                   <div className="grid grid-cols-3 gap-1.5">
                     {GROUPS.map(g => {
                       const gc = GROUP_COLORS[g.id]

@@ -66,13 +66,27 @@ export default function App() {
     } catch { showSync('Sync failed') }
   }
 
-  const violations = validateLineup(lineup, players, depthCharts, rules)
-  const bench      = getBench(lineup, players)
-  const counts     = getInningCounts(lineup, players)
-  const balance    = calcBalance(players, gameHistory)
+  // Players marked absent for this game are excluded from lineup
+  // calculations but remain on the team roster (editable in Settings).
+  const presentPlayers = players.filter(p => !p.absent)
+  const absentIds      = new Set(players.filter(p => p.absent).map(p => p.id))
+  const presentDepthCharts = Object.fromEntries(
+    Object.entries(depthCharts).map(([k, list]) => [k, (list || []).filter(id => !absentIds.has(id))])
+  )
+  const presentLineup = absentIds.size === 0 ? lineup : Object.fromEntries(
+    Object.entries(lineup).map(([inn, slots]) => [
+      inn,
+      Object.fromEntries(Object.entries(slots || {}).filter(([, pid]) => !absentIds.has(pid))),
+    ])
+  )
+
+  const violations = validateLineup(presentLineup, presentPlayers, presentDepthCharts, rules)
+  const bench      = getBench(presentLineup, presentPlayers)
+  const counts     = getInningCounts(presentLineup, presentPlayers)
+  const balance    = calcBalance(presentPlayers, gameHistory)
 
   const handleGenerate = () => {
-    setLineup(autoAssign(players, depthCharts, rules, gameHistory))
+    setLineup(autoAssign(presentPlayers, presentDepthCharts, rules, gameHistory))
   }
 
   const handlePositionUpdate = (pos, player) => {
@@ -179,9 +193,9 @@ export default function App() {
       <div className="px-3 pt-3 pb-2 max-w-lg mx-auto w-full">
         <Diamond
           inningKey={activeInning}
-          lineup={lineup[activeInning] || {}}
-          players={players}
-          depthCharts={depthCharts}
+          lineup={presentLineup[activeInning] || {}}
+          players={presentPlayers}
+          depthCharts={presentDepthCharts}
           rules={rules}
           violations={violations}
           onUpdate={handlePositionUpdate}
@@ -210,7 +224,7 @@ export default function App() {
             {hasHistory && <div className="text-xs text-slate-600">balance from {gameHistory.length} prev {gameHistory.length === 1 ? 'game' : 'games'}</div>}
           </div>
           <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-            {players.map(p => {
+            {presentPlayers.map(p => {
               const n   = counts[p.id] ?? 0
               const bal = balance[p.id] ?? 0
               const showBal = hasHistory
@@ -274,7 +288,7 @@ export default function App() {
       {/* Game log modal */}
       {showGameLog && (
         <GameLogModal
-          players={players}
+          players={presentPlayers}
           counts={counts}
           gameHistory={gameHistory}
           onLock={handleLockGame}
