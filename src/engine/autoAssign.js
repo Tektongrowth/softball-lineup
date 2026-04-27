@@ -184,8 +184,9 @@ export function autoAssign(players, depthCharts, rules, gameHistory = []) {
 
   const bpos = (p, inn) => {
     const r = []
-    if (p.floater) r.push('LF', 'LC', 'RC', 'RF')
-    else if (p.group) {
+    if (p.floater || !p.group) {
+      r.push('LF', 'LC', 'RC', 'RF')
+    } else {
       r.push(GROUP_OF[p.group])
       if (inn === 'inn1' || inn === 'inn2') r.push(GROUP_INFIELD[p.group])
     }
@@ -308,6 +309,65 @@ export function autoAssign(players, depthCharts, rules, gameHistory = []) {
         )
       if (eligible.length) set(inning, pos, eligible[0].id)
     }
+  }
+
+  // 8d: Last resort — place any player still below TARGET_MIN in any available OF slot.
+  //     Ignores group constraints. Fires only when group-based placement couldn't help
+  //     (e.g. a player with no group, or an overflow group that exceeds available slots).
+  const findAnyOFSlot = (player, tInn, plannedBenches) => {
+    if (used[tInn].has(player.id)) return null
+    const positions = ['LF', 'LC', 'RC', 'RF']
+      .sort((a, b) => (balance[lineup[tInn][b]] || 0) - (balance[lineup[tInn][a]] || 0))
+    for (const pos of positions) {
+      const occ = lineup[tInn][pos]
+      if (!occ) return { pos, displaced: null }
+      const extra   = Object.entries(plannedBenches).filter(([, o]) => o === occ).map(([i]) => i)
+      const newPlay = playInn(occ).filter(i => i !== tInn && !extra.includes(i))
+      if (newPlay.length < TARGET_MIN_INNINGS || hasConsecSits(newPlay)) continue
+      return { pos, displaced: occ }
+    }
+    return null
+  }
+
+  for (let iter = 0; iter < 30; iter++) {
+    const cnt = {}
+    for (const p of players) cnt[p.id] = playInn(p.id).length
+    const stuck = players
+      .filter(p => cnt[p.id] < TARGET_MIN_INNINGS)
+      .sort((a, b) => cnt[a.id] - cnt[b.id])
+    if (!stuck.length) break
+
+    let improved = false
+    for (const player of stuck) {
+      const cp = playInn(player.id)
+      if (cp.length === 0) {
+        for (const [iA, iB] of validPairs) {
+          const s1 = findAnyOFSlot(player, iA, {})
+          if (!s1) continue
+          const s2 = findAnyOFSlot(player, iB, { [iA]: s1.displaced })
+          if (!s2) continue
+          if (s1.displaced) unset(iA, s1.pos)
+          set(iA, s1.pos, player.id)
+          if (s2.displaced) unset(iB, s2.pos)
+          set(iB, s2.pos, player.id)
+          improved = true
+          break
+        }
+      } else {
+        for (const ti of INNINGS) {
+          if (cp.includes(ti) || used[ti].has(player.id)) continue
+          if (hasConsecSits([...cp, ti])) continue
+          const s = findAnyOFSlot(player, ti, {})
+          if (!s) continue
+          if (s.displaced) unset(ti, s.pos)
+          set(ti, s.pos, player.id)
+          improved = true
+          break
+        }
+      }
+      if (improved) break
+    }
+    if (!improved) break
   }
 
   return lineup
