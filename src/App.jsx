@@ -8,6 +8,7 @@ import { Diamond } from './components/Diamond'
 import { BattingOrder } from './components/BattingOrder'
 import { SettingsScreen } from './components/settings/SettingsScreen'
 import { GameLogModal } from './components/GameLogModal'
+import { GameHistoryModal } from './components/GameHistoryModal'
 
 async function fetchSync(teamCode) {
   const res = await fetch(`/api/sync?team=${encodeURIComponent(teamCode)}`)
@@ -36,6 +37,7 @@ export default function App() {
   const [activeTab,     setActiveTab]     = useState('inn1')
   const [showSettings,  setShowSettings]  = useState(false)
   const [showGameLog,   setShowGameLog]   = useState(false)
+  const [showHistory,   setShowHistory]   = useState(false)
   const [syncStatus,    setSyncStatus]    = useState('')
   const syncTimer = useRef(null)
 
@@ -99,14 +101,16 @@ export default function App() {
     }))
   }
 
-  const handleLockGame = ({ clear }) => {
+  const handleLockGame = ({ clear, scoreUs = null, scoreThem = null }) => {
     const gameNum  = gameHistory.length + 1
     const today    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     const entry    = {
-      id:     `game-${Date.now()}`,
-      label:  `Game ${gameNum}`,
-      date:   today,
-      counts: { ...counts },
+      id:        `game-${Date.now()}`,
+      label:     `Game ${gameNum}`,
+      date:      today,
+      counts:    { ...counts },
+      scoreUs,
+      scoreThem,
     }
     const newHistory = [...gameHistory, entry]
     const newLineup  = clear ? DEFAULT_LINEUP : lineup
@@ -114,6 +118,11 @@ export default function App() {
     if (clear) setLineup(DEFAULT_LINEUP)
     setShowGameLog(false)
     pushData({ gameHistory: newHistory, lineup: newLineup })
+  }
+
+  const handleHistoryChange = (newHistory) => {
+    setGameHistory(newHistory)
+    pushData({ gameHistory: newHistory })
   }
 
   const team3Active = activeTab === 'inn3' || activeTab === 'inn4'
@@ -152,6 +161,16 @@ export default function App() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors"
+            title="Game history"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{gameHistory.length}</span>
+          </button>
           <button
             onClick={() => setShowGameLog(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 text-sm border border-emerald-700/40 transition-colors"
@@ -316,6 +335,15 @@ export default function App() {
           gameHistory={gameHistory}
           onLock={handleLockGame}
           onClose={() => setShowGameLog(false)}
+        />
+      )}
+
+      {/* Game history modal */}
+      {showHistory && (
+        <GameHistoryModal
+          gameHistory={gameHistory}
+          onChange={handleHistoryChange}
+          onClose={() => setShowHistory(false)}
         />
       )}
     </div>

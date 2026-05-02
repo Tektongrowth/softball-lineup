@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { calcBalance } from '../engine/autoAssign'
 
 function fmt(n) {
@@ -12,6 +13,16 @@ export function GameLogModal({ players, counts, gameHistory, onLock, onClose }) 
   // What the balance will be AFTER this game is logged
   const allGames  = [...gameHistory, { counts }]
   const newBal    = calcBalance(players, allGames)
+
+  const [scoreUs,   setScoreUs]   = useState('')
+  const [scoreThem, setScoreThem] = useState('')
+
+  const parseScore = (s) => {
+    if (s === '' || s === null || s === undefined) return null
+    const n = parseInt(s, 10)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  const scores = { scoreUs: parseScore(scoreUs), scoreThem: parseScore(scoreThem) }
 
   // Cumulative innings including this game
   const cumulative = {}
@@ -31,8 +42,37 @@ export function GameLogModal({ players, counts, gameHistory, onLock, onClose }) 
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl w-8 h-8 flex items-center justify-center">&times;</button>
         </div>
 
-        {/* Player table */}
+        {/* Score + player table */}
         <div className="overflow-y-auto flex-1 p-4">
+          <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Final score</div>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex-1">
+              <div className="text-[10px] text-slate-500 mb-1">Us</div>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={scoreUs}
+                onChange={e => setScoreUs(e.target.value)}
+                placeholder="—"
+                className="w-full bg-slate-800 text-white text-center text-2xl font-bold tabular-nums rounded-lg px-2 py-2 border border-slate-700 focus:border-blue-500 outline-none"
+              />
+            </div>
+            <span className="text-slate-600 text-xl pt-5">–</span>
+            <div className="flex-1">
+              <div className="text-[10px] text-slate-500 mb-1">Them</div>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={scoreThem}
+                onChange={e => setScoreThem(e.target.value)}
+                placeholder="—"
+                className="w-full bg-slate-800 text-white text-center text-2xl font-bold tabular-nums rounded-lg px-2 py-2 border border-slate-700 focus:border-blue-500 outline-none"
+              />
+            </div>
+          </div>
+
           <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">This game</div>
           <div className="space-y-1 mb-4">
             {players.map(p => {
@@ -90,13 +130,13 @@ export function GameLogModal({ players, counts, gameHistory, onLock, onClose }) 
         {/* Actions */}
         <div className="flex-shrink-0 p-4 border-t border-slate-800 space-y-2">
           <button
-            onClick={() => onLock({ clear: true })}
+            onClick={() => onLock({ clear: true, ...scores })}
             className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-colors"
           >
             Lock & Start Next Game
           </button>
           <button
-            onClick={() => onLock({ clear: false })}
+            onClick={() => onLock({ clear: false, ...scores })}
             className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl text-sm transition-colors"
           >
             Lock Only (keep current lineup)
