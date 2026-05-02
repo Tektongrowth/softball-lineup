@@ -9,7 +9,7 @@ const TABS = [
   { id: 'rules', label: 'Rules' },
 ]
 
-export function SettingsScreen({ players, depthCharts, rules, teamCode, onPlayersChange, onDepthChartsChange, onRulesChange, onTeamCodeChange, onGenerate, onSync, onClose }) {
+export function SettingsScreen({ players, depthCharts, rules, teamCode, onPlayersChange, onDepthChartsChange, onRulesChange, onTeamCodeChange, onGenerate, generateDisabled, onSync, onClose }) {
   const [tab, setTab] = useState('roster')
   const [codeInput, setCodeInput] = useState(teamCode || '')
 
@@ -79,9 +79,10 @@ export function SettingsScreen({ players, depthCharts, rules, teamCode, onPlayer
 
         <button
           onClick={() => { onGenerate(); onClose() }}
-          className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold rounded-xl text-base transition-colors"
+          disabled={generateDisabled}
+          className="w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-bold rounded-xl text-base transition-colors"
         >
-          Generate Lineups
+          {generateDisabled ? 'Start a game to generate' : 'Generate Lineups'}
         </button>
       </div>
     </div>

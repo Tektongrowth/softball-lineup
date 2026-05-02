@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { INNINGS, INNING_LABELS } from './data/config'
-import { DEFAULT_PLAYERS, DEFAULT_DEPTH_CHARTS, DEFAULT_RULES, DEFAULT_LINEUP } from './data/defaultState'
+import { DEFAULT_PLAYERS, DEFAULT_DEPTH_CHARTS, DEFAULT_RULES } from './data/defaultState'
+import { EMPTY_LINEUP, gameTitle, isoToday, newGameObject } from './data/gameUtils'
 import { autoAssign, getBench, getInningCounts, calcBalance } from './engine/autoAssign'
 import { validateLineup } from './engine/validate'
 import { Diamond } from './components/Diamond'
@@ -9,6 +10,7 @@ import { BattingOrder } from './components/BattingOrder'
 import { SettingsScreen } from './components/settings/SettingsScreen'
 import { GameLogModal } from './components/GameLogModal'
 import { GameHistoryModal } from './components/GameHistoryModal'
+import { NewGameModal } from './components/NewGameModal'
 
 async function fetchSync(teamCode) {
   const res = await fetch(`/api/sync?team=${encodeURIComponent(teamCode)}`)
@@ -25,20 +27,48 @@ async function pushSync(teamCode, payload) {
   })
 }
 
-export default function App() {
-  const [players,       setPlayers]       = useLocalStorage('sl-players',        DEFAULT_PLAYERS)
-  const [depthCharts,   setDepthCharts]   = useLocalStorage('sl-depth-charts',   DEFAULT_DEPTH_CHARTS)
-  const [rules,         setRules]         = useLocalStorage('sl-rules',          DEFAULT_RULES)
-  const [lineup,        setLineup]        = useLocalStorage('sl-lineup',         DEFAULT_LINEUP)
-  const [battingOrder,  setBattingOrder]  = useLocalStorage('sl-batting-order',  [])
-  const [gameHistory,   setGameHistory]   = useLocalStorage('sl-game-history',   [])
-  const [teamCode,      setTeamCode]      = useLocalStorage('sl-team-code',      '')
+// Migrate the pre-v2 separate `sl-lineup` / `sl-batting-order` keys into a
+// single `sl-current-game` object the first time the new build loads.
+const INITIAL_CURRENT_GAME = (() => {
+  if (typeof window === 'undefined') return null
+  try {
+    const cur = window.localStorage.getItem('sl-current-game')
+    if (cur !== null) return JSON.parse(cur)
+    const lineupRaw  = window.localStorage.getItem('sl-lineup')
+    const battingRaw = window.localStorage.getItem('sl-batting-order')
+    const lineup  = lineupRaw  ? JSON.parse(lineupRaw)  : null
+    const batting = battingRaw ? JSON.parse(battingRaw) : null
+    const hasLineup  = lineup && Object.values(lineup).some(s => s && Object.keys(s).length > 0)
+    const hasBatting = Array.isArray(batting) && batting.length > 0
+    if (!hasLineup && !hasBatting) return null
+    const game = {
+      id: `game-${Date.now()}`,
+      date: isoToday(),
+      opponent: '',
+      lineup: lineup || EMPTY_LINEUP,
+      battingOrder: Array.isArray(batting) ? batting : [],
+    }
+    window.localStorage.setItem('sl-current-game', JSON.stringify(game))
+    window.localStorage.removeItem('sl-lineup')
+    window.localStorage.removeItem('sl-batting-order')
+    return game
+  } catch { return null }
+})()
 
-  const [activeTab,     setActiveTab]     = useState('inn1')
-  const [showSettings,  setShowSettings]  = useState(false)
-  const [showGameLog,   setShowGameLog]   = useState(false)
-  const [showHistory,   setShowHistory]   = useState(false)
-  const [syncStatus,    setSyncStatus]    = useState('')
+export default function App() {
+  const [players,      setPlayers]      = useLocalStorage('sl-players',       DEFAULT_PLAYERS)
+  const [depthCharts,  setDepthCharts]  = useLocalStorage('sl-depth-charts',  DEFAULT_DEPTH_CHARTS)
+  const [rules,        setRules]        = useLocalStorage('sl-rules',         DEFAULT_RULES)
+  const [currentGame,  setCurrentGame]  = useLocalStorage('sl-current-game',  INITIAL_CURRENT_GAME)
+  const [gameHistory,  setGameHistory]  = useLocalStorage('sl-game-history',  [])
+  const [teamCode,     setTeamCode]     = useLocalStorage('sl-team-code',     '')
+
+  const [activeTab,    setActiveTab]    = useState('inn1')
+  const [showSettings, setShowSettings] = useState(false)
+  const [showGameLog,  setShowGameLog]  = useState(false)
+  const [showHistory,  setShowHistory]  = useState(false)
+  const [gameDialog,   setGameDialog]   = useState(null) // 'create' | 'edit' | null
+  const [syncStatus,   setSyncStatus]   = useState('')
   const syncTimer = useRef(null)
 
   const showSync = (msg) => {
@@ -51,17 +81,16 @@ export default function App() {
     if (!teamCode) return
     fetchSync(teamCode).then(data => {
       if (!data) return
-      if (data.players)      setPlayers(data.players)
-      if (data.depthCharts)  setDepthCharts(data.depthCharts)
-      if (data.rules)        setRules(data.rules)
-      if (data.gameHistory)  setGameHistory(data.gameHistory)
-      if (data.lineup)       setLineup(data.lineup)
-      if (data.battingOrder) setBattingOrder(data.battingOrder)
+      if (data.players)     setPlayers(data.players)
+      if (data.depthCharts) setDepthCharts(data.depthCharts)
+      if (data.rules)       setRules(data.rules)
+      if (data.gameHistory) setGameHistory(data.gameHistory)
+      if (data.currentGame !== undefined) setCurrentGame(data.currentGame)
       showSync('Synced')
     }).catch(() => {})
   }, [teamCode])
 
-  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, lineup, battingOrder })
+  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, currentGame })
 
   const pushData = async (overrides = {}) => {
     if (!teamCode) return
@@ -69,6 +98,21 @@ export default function App() {
       await pushSync(teamCode, { ...syncPayload(), ...overrides })
       showSync('Saved')
     } catch { showSync('Sync failed') }
+  }
+
+  const lineup       = currentGame?.lineup       || EMPTY_LINEUP
+  const battingOrder = currentGame?.battingOrder || []
+
+  const updateLineup = (updater) => {
+    setCurrentGame(prev => {
+      if (!prev) return prev
+      const next = typeof updater === 'function' ? updater(prev.lineup || EMPTY_LINEUP) : updater
+      return { ...prev, lineup: next }
+    })
+  }
+
+  const updateBattingOrder = (next) => {
+    setCurrentGame(prev => prev ? { ...prev, battingOrder: next } : prev)
   }
 
   // Players marked absent for this game are excluded from lineup
@@ -91,33 +135,48 @@ export default function App() {
   const balance    = calcBalance(presentPlayers, gameHistory)
 
   const handleGenerate = () => {
-    setLineup(autoAssign(presentPlayers, presentDepthCharts, rules, gameHistory))
+    if (!currentGame) return
+    updateLineup(autoAssign(presentPlayers, presentDepthCharts, rules, gameHistory))
   }
 
   const handlePositionUpdate = (pos, player) => {
-    setLineup(prev => ({
+    updateLineup(prev => ({
       ...prev,
       [activeTab]: { ...prev[activeTab], [pos]: player || undefined },
     }))
   }
 
-  const handleLockGame = ({ clear, scoreUs = null, scoreThem = null }) => {
-    const gameNum  = gameHistory.length + 1
-    const today    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const entry    = {
-      id:        `game-${Date.now()}`,
-      label:     `Game ${gameNum}`,
-      date:      today,
-      counts:    { ...counts },
+  const handleSaveGameInfo = ({ date, opponent }) => {
+    if (gameDialog === 'edit' && currentGame) {
+      const next = { ...currentGame, date, opponent }
+      setCurrentGame(next)
+      pushData({ currentGame: next })
+    } else {
+      const next = newGameObject({ date, opponent })
+      setCurrentGame(next)
+      setActiveTab('inn1')
+      pushData({ currentGame: next })
+    }
+    setGameDialog(null)
+  }
+
+  const handleFinishGame = ({ scoreUs = null, scoreThem = null }) => {
+    if (!currentGame) return
+    const entry = {
+      id:           currentGame.id,
+      date:         currentGame.date,
+      opponent:     currentGame.opponent || '',
+      lineup:       currentGame.lineup,
+      battingOrder: currentGame.battingOrder,
+      counts:       { ...counts },
       scoreUs,
       scoreThem,
     }
     const newHistory = [...gameHistory, entry]
-    const newLineup  = clear ? DEFAULT_LINEUP : lineup
     setGameHistory(newHistory)
-    if (clear) setLineup(DEFAULT_LINEUP)
+    setCurrentGame(null)
     setShowGameLog(false)
-    pushData({ gameHistory: newHistory, lineup: newLineup })
+    pushData({ gameHistory: newHistory, currentGame: null })
   }
 
   const handleHistoryChange = (newHistory) => {
@@ -138,29 +197,35 @@ export default function App() {
   const errorCount = violations.filter(v => v.severity === 'error').length
   const warnCount  = violations.filter(v => v.severity === 'warning').length
   const hasHistory = gameHistory.length > 0
+  const hasGame    = !!currentGame
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-white text-lg">⚾ Lineup</span>
-          {hasHistory && (
-            <span className="text-xs text-slate-500 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700">
-              Game {gameHistory.length + 1}
-            </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-white text-lg flex-shrink-0">⚾ Lineup</span>
+          {hasGame && (
+            <button
+              onClick={() => setGameDialog('edit')}
+              className="text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 rounded px-2 py-0.5 border border-slate-700 truncate flex items-center gap-1"
+              title="Edit game date/opponent"
+            >
+              <span className="truncate">{gameTitle(currentGame)}</span>
+              <span className="text-slate-500 text-[10px]">✎</span>
+            </button>
           )}
           {syncStatus && (
-            <span className="text-xs text-emerald-400">{syncStatus}</span>
+            <span className="text-xs text-emerald-400 flex-shrink-0">{syncStatus}</span>
           )}
-          {(errorCount > 0 || warnCount > 0) && (
-            <span className="text-xs flex items-center gap-1.5">
+          {hasGame && (errorCount > 0 || warnCount > 0) && (
+            <span className="text-xs flex items-center gap-1.5 flex-shrink-0">
               {errorCount > 0 && <span className="text-rose-400">{errorCount} err</span>}
               {warnCount  > 0 && <span className="text-amber-400">{warnCount} warn</span>}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => setShowHistory(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors"
@@ -171,12 +236,14 @@ export default function App() {
             </svg>
             <span>{gameHistory.length}</span>
           </button>
-          <button
-            onClick={() => setShowGameLog(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 text-sm border border-emerald-700/40 transition-colors"
-          >
-            Lock Game
-          </button>
+          {hasGame && (
+            <button
+              onClick={() => setShowGameLog(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-400 text-sm border border-emerald-700/40 transition-colors"
+            >
+              Finish Game
+            </button>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition-colors"
@@ -190,124 +257,152 @@ export default function App() {
         </div>
       </div>
 
-      {/* Inning + Bat tabs */}
-      <div className="flex bg-slate-900 border-b border-slate-800 flex-shrink-0">
-        {INNINGS.map(inn => {
-          const innViolations = violations.filter(v => v.inning === inn)
-          const hasError = innViolations.some(v => v.severity === 'error')
-          const hasWarn  = innViolations.some(v => v.severity === 'warning')
-          return (
-            <button key={inn} onClick={() => setActiveTab(inn)}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 relative ${
-                activeTab === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`}
-            >
-              {INNING_LABELS[inn]}
-              {(hasError || hasWarn) && (
-                <span className={`absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full ${hasError ? 'bg-rose-500' : 'bg-amber-400'}`} />
-              )}
-            </button>
-          )
-        })}
-        <button onClick={() => setActiveTab('bat')}
-          className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'bat' ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
-          }`}
-        >
-          Bat
-        </button>
-      </div>
-
-      {/* Batting order view */}
-      {activeTab === 'bat' && (
-        <BattingOrder
-          order={battingOrder}
-          players={presentPlayers}
-          onChange={setBattingOrder}
-        />
-      )}
-
-      {/* Diamond */}
-      {activeTab !== 'bat' && (
-      <div className="px-3 pt-3 pb-2 max-w-lg mx-auto w-full">
-        <Diamond
-          inningKey={activeTab}
-          lineup={presentLineup[activeTab] || {}}
-          players={presentPlayers}
-          depthCharts={presentDepthCharts}
-          rules={rules}
-          violations={violations}
-          onUpdate={handlePositionUpdate}
-          team3Locks={team3Locks}
-        />
-      </div>
-      )}
-
-      {/* Footer panels */}
-      {activeTab !== 'bat' && (
-      <div className="px-4 pb-6 space-y-3 max-w-lg mx-auto w-full">
-        {/* Bench */}
-        {bench[activeTab]?.length > 0 && (
-          <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeTab]}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {bench[activeTab].map(pid => (
-                <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{pid}</span>
-              ))}
+      {/* Empty state — no game in progress */}
+      {!hasGame && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-slate-900 rounded-2xl border border-slate-800 p-6 text-center space-y-4">
+            <div className="text-5xl">⚾</div>
+            <div>
+              <div className="text-lg font-bold text-white">No game in progress</div>
+              <div className="text-sm text-slate-500 mt-1">
+                Start a new game to set up the fielding lineup and batting order.
+              </div>
             </div>
+            <button
+              onClick={() => setGameDialog('create')}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-sm transition-colors"
+            >
+              + New Game
+            </button>
+            {hasHistory && (
+              <button
+                onClick={() => setShowHistory(true)}
+                className="w-full py-2 text-slate-400 hover:text-white text-sm transition-colors"
+              >
+                View {gameHistory.length} past {gameHistory.length === 1 ? 'game' : 'games'}
+              </button>
+            )}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Innings played + carry-over balance */}
-        <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs text-slate-500 uppercase tracking-wider">Innings played</div>
-            {hasHistory && <div className="text-xs text-slate-600">balance from {gameHistory.length} prev {gameHistory.length === 1 ? 'game' : 'games'}</div>}
-          </div>
-          <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-            {presentPlayers.map(p => {
-              const n   = counts[p.id] ?? 0
-              const bal = balance[p.id] ?? 0
-              const showBal = hasHistory
+      {/* In-progress game UI */}
+      {hasGame && (
+        <>
+          {/* Inning + Bat tabs */}
+          <div className="flex bg-slate-900 border-b border-slate-800 flex-shrink-0">
+            {INNINGS.map(inn => {
+              const innViolations = violations.filter(v => v.inning === inn)
+              const hasError = innViolations.some(v => v.severity === 'error')
+              const hasWarn  = innViolations.some(v => v.severity === 'warning')
               return (
-                <div key={p.id} className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1.5">
-                  <span className="text-white text-xs flex-1 truncate">{p.id}</span>
-                  <span className={`text-xs font-bold tabular-nums ${
-                    n === 0 ? 'text-slate-600' : n < 2 ? 'text-amber-400' : n >= 4 ? 'text-emerald-400' : 'text-slate-300'
-                  }`}>{n}</span>
-                  {showBal && (
-                    <span className={`text-[10px] tabular-nums w-8 text-right ${
-                      bal > 0.8 ? 'text-amber-400' : bal < -0.8 ? 'text-sky-400' : 'text-slate-600'
-                    }`}>
-                      {bal > 0.05 ? `+${bal.toFixed(1)}` : bal < -0.05 ? bal.toFixed(1) : ''}
-                    </span>
+                <button key={inn} onClick={() => setActiveTab(inn)}
+                  className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 relative ${
+                    activeTab === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+                  }`}
+                >
+                  {INNING_LABELS[inn]}
+                  {(hasError || hasWarn) && (
+                    <span className={`absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full ${hasError ? 'bg-rose-500' : 'bg-amber-400'}`} />
                   )}
-                </div>
+                </button>
               )
             })}
+            <button onClick={() => setActiveTab('bat')}
+              className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+                activeTab === 'bat' ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+              }`}
+            >
+              Bat
+            </button>
           </div>
-          {hasHistory && (
-            <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-700">
-              <span><span className="text-amber-400">+X</span> = over-played, engine reduces next game</span>
-              <span><span className="text-sky-400">−X</span> = under-played, engine boosts next game</span>
-            </div>
-          )}
-        </div>
 
-        {/* Violations */}
-        {violations.length > 0 && (
-          <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-1">
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Violations</div>
-            {violations.map((v, i) => (
-              <div key={i} className={`text-xs px-2 py-1.5 rounded-lg ${
-                v.severity === 'error' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-400/10 text-amber-400'
-              }`}>
-                {v.inning ? `Inn ${v.inning.replace('inn', '')}: ` : ''}{v.message}
+          {activeTab === 'bat' && (
+            <BattingOrder
+              order={battingOrder}
+              players={presentPlayers}
+              onChange={updateBattingOrder}
+            />
+          )}
+
+          {activeTab !== 'bat' && (
+            <>
+              <div className="px-3 pt-3 pb-2 max-w-lg mx-auto w-full">
+                <Diamond
+                  inningKey={activeTab}
+                  lineup={presentLineup[activeTab] || {}}
+                  players={presentPlayers}
+                  depthCharts={presentDepthCharts}
+                  rules={rules}
+                  violations={violations}
+                  onUpdate={handlePositionUpdate}
+                  team3Locks={team3Locks}
+                />
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+
+              <div className="px-4 pb-6 space-y-3 max-w-lg mx-auto w-full">
+                {bench[activeTab]?.length > 0 && (
+                  <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeTab]}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {bench[activeTab].map(pid => (
+                        <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{pid}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs text-slate-500 uppercase tracking-wider">Innings played</div>
+                    {hasHistory && <div className="text-xs text-slate-600">balance from {gameHistory.length} prev {gameHistory.length === 1 ? 'game' : 'games'}</div>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                    {presentPlayers.map(p => {
+                      const n   = counts[p.id] ?? 0
+                      const bal = balance[p.id] ?? 0
+                      const showBal = hasHistory
+                      return (
+                        <div key={p.id} className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1.5">
+                          <span className="text-white text-xs flex-1 truncate">{p.id}</span>
+                          <span className={`text-xs font-bold tabular-nums ${
+                            n === 0 ? 'text-slate-600' : n < 2 ? 'text-amber-400' : n >= 4 ? 'text-emerald-400' : 'text-slate-300'
+                          }`}>{n}</span>
+                          {showBal && (
+                            <span className={`text-[10px] tabular-nums w-8 text-right ${
+                              bal > 0.8 ? 'text-amber-400' : bal < -0.8 ? 'text-sky-400' : 'text-slate-600'
+                            }`}>
+                              {bal > 0.05 ? `+${bal.toFixed(1)}` : bal < -0.05 ? bal.toFixed(1) : ''}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {hasHistory && (
+                    <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-700">
+                      <span><span className="text-amber-400">+X</span> = over-played, engine reduces next game</span>
+                      <span><span className="text-sky-400">−X</span> = under-played, engine boosts next game</span>
+                    </div>
+                  )}
+                </div>
+
+                {violations.length > 0 && (
+                  <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 space-y-1">
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Violations</div>
+                    {violations.map((v, i) => (
+                      <div key={i} className={`text-xs px-2 py-1.5 rounded-lg ${
+                        v.severity === 'error' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-400/10 text-amber-400'
+                      }`}>
+                        {v.inning ? `Inn ${v.inning.replace('inn', '')}: ` : ''}{v.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </>
       )}
 
       {/* Settings overlay */}
@@ -322,19 +417,31 @@ export default function App() {
           onRulesChange={setRules}
           onTeamCodeChange={setTeamCode}
           onGenerate={handleGenerate}
+          generateDisabled={!hasGame}
           onSync={() => pushData()}
           onClose={() => setShowSettings(false)}
         />
       )}
 
-      {/* Game log modal */}
-      {showGameLog && (
+      {/* Finish game modal */}
+      {showGameLog && hasGame && (
         <GameLogModal
+          game={currentGame}
           players={presentPlayers}
           counts={counts}
           gameHistory={gameHistory}
-          onLock={handleLockGame}
+          onFinish={handleFinishGame}
           onClose={() => setShowGameLog(false)}
+        />
+      )}
+
+      {/* New / edit game modal */}
+      {gameDialog && (
+        <NewGameModal
+          mode={gameDialog}
+          initial={gameDialog === 'edit' ? currentGame : null}
+          onSave={handleSaveGameInfo}
+          onClose={() => setGameDialog(null)}
         />
       )}
 

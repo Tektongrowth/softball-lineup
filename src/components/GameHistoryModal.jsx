@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDateShort, isoToday } from '../data/gameUtils'
 
 function resultPill(scoreUs, scoreThem) {
   if (scoreUs == null || scoreThem == null) return null
@@ -7,8 +8,17 @@ function resultPill(scoreUs, scoreThem) {
   return { label: 'T', cls: 'bg-slate-500/20 text-slate-300 border-slate-500/40' }
 }
 
+// ISO yyyy-mm-dd sorts lexicographically. Legacy "May 2" strings get pushed to
+// the bottom (treated as oldest) so they don't intersperse with new entries.
+function sortKey(g) {
+  if (g.date && /^\d{4}-\d{2}-\d{2}$/.test(g.date)) return g.date
+  return '0000-00-00'
+}
+
 export function GameHistoryModal({ gameHistory, onChange, onClose }) {
   const [editingId, setEditingId] = useState(null)
+  const [editDate, setEditDate] = useState('')
+  const [editOpp, setEditOpp] = useState('')
   const [editUs, setEditUs] = useState('')
   const [editThem, setEditThem] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -24,6 +34,8 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
 
   const startEdit = (g) => {
     setEditingId(g.id)
+    setEditDate(/^\d{4}-\d{2}-\d{2}$/.test(g.date) ? g.date : isoToday())
+    setEditOpp(g.opponent ?? '')
     setEditUs(g.scoreUs ?? '')
     setEditThem(g.scoreThem ?? '')
     setConfirmDelete(null)
@@ -37,7 +49,7 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
 
   const saveEdit = () => {
     onChange(gameHistory.map(g => g.id === editingId
-      ? { ...g, scoreUs: parseScore(editUs), scoreThem: parseScore(editThem) }
+      ? { ...g, date: editDate, opponent: editOpp.trim(), scoreUs: parseScore(editUs), scoreThem: parseScore(editThem) }
       : g))
     setEditingId(null)
   }
@@ -47,6 +59,8 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
     setConfirmDelete(null)
     if (editingId === id) setEditingId(null)
   }
+
+  const sorted = [...gameHistory].sort((a, b) => sortKey(b).localeCompare(sortKey(a)))
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80">
@@ -68,11 +82,11 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
         <div className="overflow-y-auto flex-1 p-4 space-y-2">
           {gameHistory.length === 0 && (
             <div className="text-center text-slate-600 text-sm py-8">
-              Lock a game to start your history.
+              Finish a game to start your history.
             </div>
           )}
 
-          {[...gameHistory].reverse().map(g => {
+          {sorted.map(g => {
             const pill = resultPill(g.scoreUs, g.scoreThem)
             const isEditing = editingId === g.id
             const isConfirming = confirmDelete === g.id
@@ -91,8 +105,12 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
                   )}
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-white font-semibold text-sm truncate">{g.label}</div>
-                    <div className="text-xs text-slate-500">{g.date}</div>
+                    <div className="text-white font-semibold text-sm truncate">
+                      {formatDateShort(g.date) || g.label || 'Game'}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {g.opponent ? `vs ${g.opponent}` : 'No opponent'}
+                    </div>
                   </div>
 
                   {!isEditing && (
@@ -119,7 +137,28 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
 
                 {isEditing && (
                   <div className="px-3 pb-3 space-y-2 border-t border-slate-700/50">
-                    <div className="flex items-center gap-2 pt-3">
+                    <div className="grid grid-cols-2 gap-2 pt-3">
+                      <div>
+                        <div className="text-[10px] text-slate-500 mb-1">Date</div>
+                        <input
+                          type="date"
+                          value={editDate}
+                          onChange={e => setEditDate(e.target.value)}
+                          className="w-full bg-slate-900 text-white text-sm rounded-lg px-2 py-1.5 border border-slate-700 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-500 mb-1">Opponent</div>
+                        <input
+                          type="text"
+                          value={editOpp}
+                          onChange={e => setEditOpp(e.target.value)}
+                          placeholder="—"
+                          className="w-full bg-slate-900 text-white text-sm rounded-lg px-2 py-1.5 border border-slate-700 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <div className="flex-1">
                         <div className="text-[10px] text-slate-500 mb-1">Us</div>
                         <input
@@ -134,7 +173,7 @@ export function GameHistoryModal({ gameHistory, onChange, onClose }) {
                       </div>
                       <span className="text-slate-600 text-lg pt-5">–</span>
                       <div className="flex-1">
-                        <div className="text-[10px] text-slate-500 mb-1">Them</div>
+                        <div className="text-[10px] text-slate-500 mb-1">{editOpp || 'Them'}</div>
                         <input
                           type="number"
                           inputMode="numeric"
