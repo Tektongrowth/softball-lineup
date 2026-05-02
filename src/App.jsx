@@ -69,33 +69,88 @@ export default function App() {
   const [showHistory,  setShowHistory]  = useState(false)
   const [gameDialog,   setGameDialog]   = useState(null) // 'create' | 'edit' | null
   const [syncStatus,   setSyncStatus]   = useState('')
-  const syncTimer = useRef(null)
+  const syncTimer    = useRef(null)
+  const pushTimer    = useRef(null)
+  const lastSynced   = useRef(null)   // JSON of last payload pushed or pulled
+  const initialized  = useRef(false)  // True once first pull (or no-team) has settled
 
   const showSync = (msg) => {
     setSyncStatus(msg)
     clearTimeout(syncTimer.current)
-    syncTimer.current = setTimeout(() => setSyncStatus(''), 3000)
+    syncTimer.current = setTimeout(() => setSyncStatus(''), 2000)
   }
 
+  // ── Sync: pull on mount + periodically + on tab visibility change ──────────
   useEffect(() => {
-    if (!teamCode) return
-    fetchSync(teamCode).then(data => {
-      if (!data) return
-      if (data.players)     setPlayers(data.players)
-      if (data.depthCharts) setDepthCharts(data.depthCharts)
-      if (data.rules)       setRules(data.rules)
-      if (data.gameHistory) setGameHistory(data.gameHistory)
-      if (data.currentGame !== undefined) setCurrentGame(data.currentGame)
-      showSync('Synced')
-    }).catch(() => {})
+    if (!teamCode) {
+      initialized.current = true
+      lastSynced.current = null
+      return
+    }
+    initialized.current = false
+    let cancelled = false
+
+    const pull = async () => {
+      try {
+        const data = await fetchSync(teamCode)
+        if (cancelled || !data) return
+        const merged = {
+          players:     data.players     ?? players,
+          depthCharts: data.depthCharts ?? depthCharts,
+          rules:       data.rules       ?? rules,
+          gameHistory: data.gameHistory ?? gameHistory,
+          currentGame: 'currentGame' in data ? data.currentGame : currentGame,
+        }
+        const incoming = JSON.stringify(merged)
+        if (incoming === lastSynced.current) return
+        lastSynced.current = incoming
+        if (data.players)     setPlayers(data.players)
+        if (data.depthCharts) setDepthCharts(data.depthCharts)
+        if (data.rules)       setRules(data.rules)
+        if (data.gameHistory) setGameHistory(data.gameHistory)
+        if ('currentGame' in data) setCurrentGame(data.currentGame)
+        showSync('Synced')
+      } catch {} finally {
+        if (!cancelled) initialized.current = true
+      }
+    }
+
+    pull()
+    const interval = setInterval(pull, 15000)
+    const onVisible = () => { if (document.visibilityState === 'visible') pull() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [teamCode])
 
-  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, currentGame })
+  // ── Sync: debounced auto-push whenever any synced field changes ────────────
+  const payloadJson = JSON.stringify({ players, depthCharts, rules, gameHistory, currentGame })
+  useEffect(() => {
+    if (!teamCode || !initialized.current) return
+    if (payloadJson === lastSynced.current) return
 
-  const pushData = async (overrides = {}) => {
+    clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(async () => {
+      try {
+        await pushSync(teamCode, { players, depthCharts, rules, gameHistory, currentGame })
+        lastSynced.current = payloadJson
+        showSync('Saved')
+      } catch { showSync('Sync failed') }
+    }, 800)
+
+    return () => clearTimeout(pushTimer.current)
+  }, [payloadJson, teamCode])
+
+  const forceSync = async () => {
     if (!teamCode) return
+    clearTimeout(pushTimer.current)
     try {
-      await pushSync(teamCode, { ...syncPayload(), ...overrides })
+      await pushSync(teamCode, { players, depthCharts, rules, gameHistory, currentGame })
+      lastSynced.current = payloadJson
       showSync('Saved')
     } catch { showSync('Sync failed') }
   }
@@ -148,14 +203,10 @@ export default function App() {
 
   const handleSaveGameInfo = ({ date, opponent }) => {
     if (gameDialog === 'edit' && currentGame) {
-      const next = { ...currentGame, date, opponent }
-      setCurrentGame(next)
-      pushData({ currentGame: next })
+      setCurrentGame({ ...currentGame, date, opponent })
     } else {
-      const next = newGameObject({ date, opponent })
-      setCurrentGame(next)
+      setCurrentGame(newGameObject({ date, opponent }))
       setActiveTab('inn1')
-      pushData({ currentGame: next })
     }
     setGameDialog(null)
   }
@@ -172,16 +223,13 @@ export default function App() {
       scoreUs,
       scoreThem,
     }
-    const newHistory = [...gameHistory, entry]
-    setGameHistory(newHistory)
+    setGameHistory([...gameHistory, entry])
     setCurrentGame(null)
     setShowGameLog(false)
-    pushData({ gameHistory: newHistory, currentGame: null })
   }
 
   const handleHistoryChange = (newHistory) => {
     setGameHistory(newHistory)
-    pushData({ gameHistory: newHistory })
   }
 
   const team3Active = activeTab === 'inn3' || activeTab === 'inn4'
@@ -425,7 +473,7 @@ export default function App() {
           onTeamCodeChange={setTeamCode}
           onGenerate={handleGenerate}
           generateDisabled={!hasGame}
-          onSync={() => pushData()}
+          onSync={forceSync}
           onClose={() => setShowSettings(false)}
         />
       )}
