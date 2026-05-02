@@ -5,6 +5,7 @@ import { DEFAULT_PLAYERS, DEFAULT_DEPTH_CHARTS, DEFAULT_RULES, DEFAULT_LINEUP } 
 import { autoAssign, getBench, getInningCounts, calcBalance } from './engine/autoAssign'
 import { validateLineup } from './engine/validate'
 import { Diamond } from './components/Diamond'
+import { BattingOrder } from './components/BattingOrder'
 import { SettingsScreen } from './components/settings/SettingsScreen'
 import { GameLogModal } from './components/GameLogModal'
 
@@ -24,14 +25,15 @@ async function pushSync(teamCode, payload) {
 }
 
 export default function App() {
-  const [players,      setPlayers]      = useLocalStorage('sl-players',      DEFAULT_PLAYERS)
-  const [depthCharts,  setDepthCharts]  = useLocalStorage('sl-depth-charts',  DEFAULT_DEPTH_CHARTS)
-  const [rules,        setRules]        = useLocalStorage('sl-rules',         DEFAULT_RULES)
-  const [lineup,       setLineup]       = useLocalStorage('sl-lineup',        DEFAULT_LINEUP)
-  const [gameHistory,  setGameHistory]  = useLocalStorage('sl-game-history',  [])
-  const [teamCode,     setTeamCode]     = useLocalStorage('sl-team-code',     '')
+  const [players,       setPlayers]       = useLocalStorage('sl-players',        DEFAULT_PLAYERS)
+  const [depthCharts,   setDepthCharts]   = useLocalStorage('sl-depth-charts',   DEFAULT_DEPTH_CHARTS)
+  const [rules,         setRules]         = useLocalStorage('sl-rules',          DEFAULT_RULES)
+  const [lineup,        setLineup]        = useLocalStorage('sl-lineup',         DEFAULT_LINEUP)
+  const [battingOrder,  setBattingOrder]  = useLocalStorage('sl-batting-order',  [])
+  const [gameHistory,   setGameHistory]   = useLocalStorage('sl-game-history',   [])
+  const [teamCode,      setTeamCode]      = useLocalStorage('sl-team-code',      '')
 
-  const [activeInning,  setActiveInning]  = useState('inn1')
+  const [activeTab,     setActiveTab]     = useState('inn1')
   const [showSettings,  setShowSettings]  = useState(false)
   const [showGameLog,   setShowGameLog]   = useState(false)
   const [syncStatus,    setSyncStatus]    = useState('')
@@ -47,16 +49,17 @@ export default function App() {
     if (!teamCode) return
     fetchSync(teamCode).then(data => {
       if (!data) return
-      if (data.players)     setPlayers(data.players)
-      if (data.depthCharts) setDepthCharts(data.depthCharts)
-      if (data.rules)       setRules(data.rules)
-      if (data.gameHistory) setGameHistory(data.gameHistory)
-      if (data.lineup)      setLineup(data.lineup)
+      if (data.players)      setPlayers(data.players)
+      if (data.depthCharts)  setDepthCharts(data.depthCharts)
+      if (data.rules)        setRules(data.rules)
+      if (data.gameHistory)  setGameHistory(data.gameHistory)
+      if (data.lineup)       setLineup(data.lineup)
+      if (data.battingOrder) setBattingOrder(data.battingOrder)
       showSync('Synced')
     }).catch(() => {})
   }, [teamCode])
 
-  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, lineup })
+  const syncPayload = () => ({ players, depthCharts, rules, gameHistory, lineup, battingOrder })
 
   const pushData = async (overrides = {}) => {
     if (!teamCode) return
@@ -92,7 +95,7 @@ export default function App() {
   const handlePositionUpdate = (pos, player) => {
     setLineup(prev => ({
       ...prev,
-      [activeInning]: { ...prev[activeInning], [pos]: player || undefined },
+      [activeTab]: { ...prev[activeTab], [pos]: player || undefined },
     }))
   }
 
@@ -113,7 +116,7 @@ export default function App() {
     pushData({ gameHistory: newHistory, lineup: newLineup })
   }
 
-  const team3Active = activeInning === 'inn3' || activeInning === 'inn4'
+  const team3Active = activeTab === 'inn3' || activeTab === 'inn4'
   const lockEnabled = rules.find(r => r.id === 'team3-lock')?.enabled
   const team3Locks  = (team3Active && lockEnabled)
     ? Object.fromEntries(
@@ -168,16 +171,16 @@ export default function App() {
         </div>
       </div>
 
-      {/* Inning tabs */}
+      {/* Inning + Bat tabs */}
       <div className="flex bg-slate-900 border-b border-slate-800 flex-shrink-0">
         {INNINGS.map(inn => {
           const innViolations = violations.filter(v => v.inning === inn)
           const hasError = innViolations.some(v => v.severity === 'error')
           const hasWarn  = innViolations.some(v => v.severity === 'warning')
           return (
-            <button key={inn} onClick={() => setActiveInning(inn)}
+            <button key={inn} onClick={() => setActiveTab(inn)}
               className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 relative ${
-                activeInning === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+                activeTab === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
               }`}
             >
               {INNING_LABELS[inn]}
@@ -187,13 +190,30 @@ export default function App() {
             </button>
           )
         })}
+        <button onClick={() => setActiveTab('bat')}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'bat' ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
+          }`}
+        >
+          Bat
+        </button>
       </div>
 
+      {/* Batting order view */}
+      {activeTab === 'bat' && (
+        <BattingOrder
+          order={battingOrder}
+          players={presentPlayers}
+          onChange={setBattingOrder}
+        />
+      )}
+
       {/* Diamond */}
+      {activeTab !== 'bat' && (
       <div className="px-3 pt-3 pb-2 max-w-lg mx-auto w-full">
         <Diamond
-          inningKey={activeInning}
-          lineup={presentLineup[activeInning] || {}}
+          inningKey={activeTab}
+          lineup={presentLineup[activeTab] || {}}
           players={presentPlayers}
           depthCharts={presentDepthCharts}
           rules={rules}
@@ -202,15 +222,17 @@ export default function App() {
           team3Locks={team3Locks}
         />
       </div>
+      )}
 
       {/* Footer panels */}
+      {activeTab !== 'bat' && (
       <div className="px-4 pb-6 space-y-3 max-w-lg mx-auto w-full">
         {/* Bench */}
-        {bench[activeInning]?.length > 0 && (
+        {bench[activeTab]?.length > 0 && (
           <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
-            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeInning]}</div>
+            <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeTab]}</div>
             <div className="flex flex-wrap gap-1.5">
-              {bench[activeInning].map(pid => (
+              {bench[activeTab].map(pid => (
                 <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{pid}</span>
               ))}
             </div>
@@ -267,6 +289,7 @@ export default function App() {
           </div>
         )}
       </div>
+      )}
 
       {/* Settings overlay */}
       {showSettings && (
