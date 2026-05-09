@@ -1,4 +1,4 @@
-import { INNINGS } from '../data/config'
+import { DEFAULT_INNINGS, getLineupInnings, inningNumber } from '../data/config'
 
 const GROUP_INFIELD = { A: '3B', B: 'SS', C: '2B', D: '1B' }
 const GROUP_OF      = { A: 'LF', B: 'LC', C: 'RC', D: 'RF' }
@@ -22,40 +22,49 @@ export function calcBalance(players, gameHistory) {
   return balance
 }
 
-export function autoAssign(players, depthCharts, rules, gameHistory = []) {
+export function autoAssign(players, depthCharts, rules, gameHistory = [], inningKeys = DEFAULT_INNINGS) {
+  const INNINGS = inningKeys.length ? inningKeys : DEFAULT_INNINGS
   const enabled     = new Set(rules.filter(r => r.enabled).map(r => r.id))
   const customRules = rules.filter(r => r.type === 'custom' && r.enabled)
   const balance     = calcBalance(players, gameHistory)
 
-  const lineup = { inn1: {}, inn2: {}, inn3: {}, inn4: {} }
-  const used   = { inn1: new Set(), inn2: new Set(), inn3: new Set(), inn4: new Set() }
+  const lineup = Object.fromEntries(INNINGS.map(inn => [inn, {}]))
+  const used   = Object.fromEntries(INNINGS.map(inn => [inn, new Set()]))
 
   const set = (inning, pos, player) => {
+    if (!lineup[inning]) lineup[inning] = {}
+    if (!used[inning]) used[inning] = new Set()
     if (!player || used[inning].has(player)) return false
     lineup[inning][pos] = player
     used[inning].add(player)
     return true
   }
   const unset = (inning, pos) => {
+    if (!lineup[inning] || !used[inning]) return null
     const player = lineup[inning][pos]
     if (!player) return null
     delete lineup[inning][pos]
     used[inning].delete(player)
     return player
   }
-  const firstAvailable = (chart, inning) => (chart || []).find(p => !used[inning].has(p))
+  const firstAvailable = (chart, inning) => (chart || []).find(p => !used[inning]?.has(p))
+  const earlyInnings = INNINGS.filter(inn => inningNumber(inn) <= 2)
+  const lateInnings = INNINGS.filter(inn => inningNumber(inn) >= 3)
 
   // ── STEP 1: Hard custom rules ──────────────────────────────────────────────
   for (const rule of customRules) {
-    if (rule.template === 'player-must-play') set(rule.params.inning, rule.params.position, rule.params.player)
-    if (rule.template === 'player-sits-inning') used[rule.params.inning].add(rule.params.player)
+    if (rule.template === 'player-must-play' && INNINGS.includes(rule.params.inning)) set(rule.params.inning, rule.params.position, rule.params.player)
+    if (rule.template === 'player-sits-inning' && INNINGS.includes(rule.params.inning)) used[rule.params.inning].add(rule.params.player)
   }
 
   // ── STEP 2: Team 3 infield lock ────────────────────────────────────────────
   if (enabled.has('team3-lock')) {
     for (const g of GROUPS) {
       const starter = depthCharts[g]?.[0]
-      if (starter) { set('inn3', GROUP_INFIELD[g], starter); set('inn4', GROUP_INFIELD[g], starter) }
+      if (starter) {
+        if (INNINGS.includes('inn3')) set('inn3', GROUP_INFIELD[g], starter)
+        if (INNINGS.includes('inn4')) set('inn4', GROUP_INFIELD[g], starter)
+      }
     }
   }
 
@@ -64,24 +73,29 @@ export function autoAssign(players, depthCharts, rules, gameHistory = []) {
   const c12 = depthCharts.C12 || [], c34 = depthCharts.C34 || []
 
   const sp = firstAvailable(p12, 'inn1')
-  set('inn1', 'P', sp)
-  if (sp && !used['inn2'].has(sp)) set('inn2', 'P', sp)
-  else set('inn2', 'P', firstAvailable(p12, 'inn2'))
-
-  if (enabled.has('rotate-battery') && p34.length > 1) {
-    set('inn3', 'P', p34[0])
-    set('inn4', 'P', p34.find((p, i) => i > 0 && !used['inn4'].has(p)) || firstAvailable(p34, 'inn4'))
-  } else {
-    set('inn3', 'P', firstAvailable(p34, 'inn3'))
-    set('inn4', 'P', firstAvailable(p34, 'inn4'))
+  if (INNINGS.includes('inn1')) set('inn1', 'P', sp)
+  if (INNINGS.includes('inn2')) {
+    if (sp && !used['inn2'].has(sp)) set('inn2', 'P', sp)
+    else set('inn2', 'P', firstAvailable(p12, 'inn2'))
   }
 
+  lateInnings.forEach((inning, idx) => {
+    if (enabled.has('rotate-battery') && p34.length > 1) {
+      set(inning, 'P', p34.find((p, i) => i >= idx && !used[inning].has(p)) || firstAvailable(p34, inning))
+    } else {
+      set(inning, 'P', firstAvailable(p34, inning))
+    }
+  })
+
   const sc = firstAvailable(c12, 'inn1')
-  set('inn1', 'C', sc)
-  if (sc && !used['inn2'].has(sc)) set('inn2', 'C', sc)
-  else set('inn2', 'C', firstAvailable(c12, 'inn2'))
-  set('inn3', 'C', firstAvailable(c34, 'inn3'))
-  set('inn4', 'C', c34.find((p, i) => i > 0 && !used['inn4'].has(p)) || firstAvailable(c34, 'inn4'))
+  if (INNINGS.includes('inn1')) set('inn1', 'C', sc)
+  if (INNINGS.includes('inn2')) {
+    if (sc && !used['inn2'].has(sc)) set('inn2', 'C', sc)
+    else set('inn2', 'C', firstAvailable(c12, 'inn2'))
+  }
+  lateInnings.forEach((inning, idx) => {
+    set(inning, 'C', c34.find((p, i) => i >= idx && !used[inning].has(p)) || firstAvailable(c34, inning))
+  })
 
   // ── STEP 4: Group positions ────────────────────────────────────────────────
   for (const inning of INNINGS) {
@@ -188,7 +202,7 @@ export function autoAssign(players, depthCharts, rules, gameHistory = []) {
       r.push('LF', 'LC', 'RC', 'RF')
     } else {
       r.push(GROUP_OF[p.group])
-      if (inn === 'inn1' || inn === 'inn2') r.push(GROUP_INFIELD[p.group])
+      if (earlyInnings.includes(inn)) r.push(GROUP_INFIELD[p.group])
     }
     return r
   }
@@ -373,20 +387,20 @@ export function autoAssign(players, depthCharts, rules, gameHistory = []) {
   return lineup
 }
 
-export function getBench(lineup, players) {
+export function getBench(lineup, players, inningKeys = getLineupInnings(lineup)) {
   const result = {}
-  for (const inning of INNINGS) {
-    const active = new Set(Object.values(lineup[inning]).filter(Boolean))
+  for (const inning of inningKeys) {
+    const active = new Set(Object.values(lineup[inning] || {}).filter(Boolean))
     result[inning] = players.map(p => p.id).filter(p => !active.has(p))
   }
   return result
 }
 
-export function getInningCounts(lineup, players) {
+export function getInningCounts(lineup, players, inningKeys = getLineupInnings(lineup)) {
   const counts = {}
   for (const p of players) counts[p.id] = 0
-  for (const inning of INNINGS) {
-    for (const player of Object.values(lineup[inning])) {
+  for (const inning of inningKeys) {
+    for (const player of Object.values(lineup[inning] || {})) {
       if (player && counts[player] !== undefined) counts[player]++
     }
   }

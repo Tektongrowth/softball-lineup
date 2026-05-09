@@ -9,7 +9,7 @@ const TABS = [
   { id: 'rules', label: 'Rules' },
 ]
 
-export function SettingsScreen({ players, depthCharts, rules, teamCode, onPlayersChange, onDepthChartsChange, onRulesChange, onTeamCodeChange, onGenerate, generateDisabled, onSync, onClose }) {
+export function SettingsScreen({ players, depthCharts, rules, inningKeys, teamCode, onPlayersChange, onDepthChartsChange, onRulesChange, onTeamCodeChange, onGenerate, generateDisabled, onSync, onClose }) {
   const [tab, setTab] = useState('roster')
   const [codeInput, setCodeInput] = useState(teamCode || '')
 
@@ -52,7 +52,7 @@ export function SettingsScreen({ players, depthCharts, rules, teamCode, onPlayer
           <DepthChartSection depthCharts={depthCharts} players={players} onChange={onDepthChartsChange} />
         )}
         {tab === 'rules' && (
-          <RulesSection rules={rules} players={players} onChange={onRulesChange} />
+          <RulesSection rules={rules} players={players} inningKeys={inningKeys} onChange={onRulesChange} />
         )}
       </div>
 

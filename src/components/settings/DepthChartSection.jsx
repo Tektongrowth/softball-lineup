@@ -6,9 +6,9 @@ const CHART_DEFS = [
   { key: 'C',   label: '2B / RC',        colorKey: 'C',  description: 'Group C — 2B / RC' },
   { key: 'D',   label: '1B / RF',        colorKey: 'D',  description: 'Group D — 1B / RF' },
   { key: 'P12', label: 'Pitcher (Inn 1–2)', colorKey: 'P',  description: 'Eligible pitchers for innings 1 and 2' },
-  { key: 'P34', label: 'Pitcher (Inn 3–4)', colorKey: 'P',  description: 'Eligible pitchers for innings 3 and 4' },
+  { key: 'P34', label: 'Pitcher (Inn 3+)', colorKey: 'P',  description: 'Eligible pitchers for innings 3 and later' },
   { key: 'C12', label: 'Catcher (Inn 1–2)', colorKey: 'C_', description: 'Primary catchers (innings 1–2)' },
-  { key: 'C34', label: 'Catcher (Inn 3–4)', colorKey: 'C_', description: 'Catchers for innings 3–4' },
+  { key: 'C34', label: 'Catcher (Inn 3+)', colorKey: 'C_', description: 'Catchers for innings 3 and later' },
 ]
 
 function move(arr, from, to) {

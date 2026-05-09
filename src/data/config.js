@@ -48,5 +48,31 @@ export const POS_COLOR_KEY = {
   '1B': 'D', RF: 'D',
 }
 
-export const INNING_LABELS = { inn1: 'Inn 1', inn2: 'Inn 2', inn3: 'Inn 3', inn4: 'Inn 4' }
-export const INNINGS = ['inn1', 'inn2', 'inn3', 'inn4']
+export const DEFAULT_INNING_COUNT = 4
+export const DEFAULT_INNINGS = Array.from({ length: DEFAULT_INNING_COUNT }, (_, i) => `inn${i + 1}`)
+export const INNINGS = DEFAULT_INNINGS
+
+export function inningNumber(inningKey) {
+  return Number(String(inningKey || '').replace('inn', '')) || 0
+}
+
+export function makeInningKey(n) {
+  return `inn${n}`
+}
+
+export function inningLabel(inningKey) {
+  return `Inn ${inningNumber(inningKey)}`
+}
+
+export function getLineupInnings(lineup) {
+  const keys = new Set(DEFAULT_INNINGS)
+  for (const key of Object.keys(lineup || {})) {
+    if (/^inn\d+$/.test(key)) keys.add(key)
+  }
+  return [...keys].sort((a, b) => inningNumber(a) - inningNumber(b))
+}
+
+export function nextInningKey(lineup) {
+  const max = getLineupInnings(lineup).reduce((n, key) => Math.max(n, inningNumber(key)), 0)
+  return makeInningKey(max + 1)
+}

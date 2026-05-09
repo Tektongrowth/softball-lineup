@@ -1,3 +1,4 @@
+import { DEFAULT_INNINGS } from './config'
 export const DEFAULT_PLAYERS = [
   { id: 'Anna',      number: '', group: 'B', floater: false, canPitch12: true,  canCatch12: false, canCatch34: false, canPitch34: false },
   { id: 'Moon',      number: '', group: 'A', floater: false, canPitch12: true,  canCatch12: true,  canCatch34: false, canPitch34: false },
@@ -61,8 +62,8 @@ export const DEFAULT_RULES = [
     id: 'pitcher-34',
     type: 'builtin',
     enabled: true,
-    label: 'Separate pitcher depth chart for innings 3–4',
-    description: 'Pitcher in innings 3 and 4 must come from the P 3–4 depth chart.',
+    label: 'Separate pitcher depth chart for innings 3+',
+    description: 'Pitcher in innings 3 and later must come from the P 3+ depth chart.',
   },
   {
     id: 'group-coverage',
@@ -114,7 +115,7 @@ export const RULE_TEMPLATES = [
     label: 'Player plays at most N innings',
     params: [
       { key: 'player', type: 'player', label: 'Player' },
-      { key: 'max', type: 'number', label: 'Max innings', min: 1, max: 4 },
+      { key: 'max', type: 'number', label: 'Max innings', min: 1 },
     ],
     describe: (p) => `${p.player} plays at most ${p.max} innings per game`,
   },
@@ -123,7 +124,7 @@ export const RULE_TEMPLATES = [
     label: 'Player plays at least N innings',
     params: [
       { key: 'player', type: 'player', label: 'Player' },
-      { key: 'min', type: 'number', label: 'Min innings', min: 1, max: 4 },
+      { key: 'min', type: 'number', label: 'Min innings', min: 1 },
     ],
     describe: (p) => `${p.player} plays at least ${p.min} innings per game`,
   },
@@ -137,9 +138,4 @@ export const RULE_TEMPLATES = [
   },
 ]
 
-export const DEFAULT_LINEUP = {
-  inn1: {},
-  inn2: {},
-  inn3: {},
-  inn4: {},
-}
+export const DEFAULT_LINEUP = Object.fromEntries(DEFAULT_INNINGS.map(inn => [inn, {}]))

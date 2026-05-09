@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocalStorage } from './hooks/useLocalStorage'
-import { INNINGS, INNING_LABELS } from './data/config'
+import { getLineupInnings, inningLabel, nextInningKey } from './data/config'
 import { DEFAULT_PLAYERS, DEFAULT_DEPTH_CHARTS, DEFAULT_RULES } from './data/defaultState'
 import { EMPTY_LINEUP, gameTitle, isoToday, newGameObject } from './data/gameUtils'
 import { autoAssign, getBench, getInningCounts, calcBalance } from './engine/autoAssign'
@@ -158,6 +158,7 @@ export default function App() {
   }
 
   const lineup       = currentGame?.lineup       || EMPTY_LINEUP
+  const inningKeys   = getLineupInnings(lineup)
   const battingOrder = currentGame?.battingOrder || []
 
   const updateLineup = (updater) => {
@@ -186,23 +187,29 @@ export default function App() {
     ])
   )
 
-  const violations = validateLineup(presentLineup, presentPlayers, presentDepthCharts, rules)
-  const bench      = getBench(presentLineup, presentPlayers)
-  const counts     = getInningCounts(presentLineup, presentPlayers)
+  const violations = validateLineup(presentLineup, presentPlayers, presentDepthCharts, rules, inningKeys)
+  const bench      = getBench(presentLineup, presentPlayers, inningKeys)
+  const counts     = getInningCounts(presentLineup, presentPlayers, inningKeys)
   const balance    = calcBalance(presentPlayers, gameHistory)
   const playerMap  = Object.fromEntries(players.map(p => [p.id, p]))
   const displayPlayer = (id) => playerMap[id]?.number ? `${id} #${playerMap[id].number}` : id
 
   const handleGenerate = () => {
     if (!currentGame) return
-    updateLineup(autoAssign(presentPlayers, presentDepthCharts, rules, gameHistory))
+    updateLineup(autoAssign(presentPlayers, presentDepthCharts, rules, gameHistory, inningKeys))
   }
 
   const handlePositionUpdate = (pos, player) => {
     updateLineup(prev => ({
       ...prev,
-      [activeTab]: { ...prev[activeTab], [pos]: player || undefined },
+      [activeTab]: { ...(prev[activeTab] || {}), [pos]: player || undefined },
     }))
+  }
+
+  const handleAddInning = () => {
+    const newKey = nextInningKey(lineup)
+    updateLineup(prev => ({ ...prev, [newKey]: {} }))
+    setActiveTab(newKey)
   }
 
   const handleSaveGameInfo = ({ date, opponent }) => {
@@ -350,7 +357,7 @@ export default function App() {
         <>
           {/* Inning + Bat tabs */}
           <div className="flex bg-slate-900 border-b border-slate-800 flex-shrink-0">
-            {INNINGS.map(inn => {
+            {inningKeys.map(inn => {
               const innViolations = violations.filter(v => v.inning === inn)
               const hasError = innViolations.some(v => v.severity === 'error')
               const hasWarn  = innViolations.some(v => v.severity === 'warning')
@@ -360,13 +367,19 @@ export default function App() {
                     activeTab === inn ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
                   }`}
                 >
-                  {INNING_LABELS[inn]}
+                  {inningLabel(inn)}
                   {(hasError || hasWarn) && (
                     <span className={`absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full ${hasError ? 'bg-rose-500' : 'bg-amber-400'}`} />
                   )}
                 </button>
               )
             })}
+            <button onClick={handleAddInning}
+              className="px-3 py-2.5 text-sm font-bold text-slate-400 border-b-2 border-transparent hover:text-white transition-colors"
+              title="Add inning"
+            >
+              + Inn
+            </button>
             <button onClick={() => setActiveTab('bat')}
               className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === 'bat' ? 'text-white border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-300'
@@ -402,7 +415,7 @@ export default function App() {
               <div className="px-4 pb-6 space-y-3 max-w-lg mx-auto w-full">
                 {bench[activeTab]?.length > 0 && (
                   <div className="bg-slate-900 rounded-xl p-3 border border-slate-800">
-                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeTab]}</div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {inningLabel(activeTab)}</div>
                     <div className="flex flex-wrap gap-1.5">
                       {bench[activeTab].map(pid => (
                         <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{displayPlayer(pid)}</span>
@@ -474,6 +487,7 @@ export default function App() {
           onPlayersChange={setPlayers}
           onDepthChartsChange={setDepthCharts}
           onRulesChange={setRules}
+          inningKeys={inningKeys}
           onTeamCodeChange={setTeamCode}
           onGenerate={handleGenerate}
           generateDisabled={!hasGame}

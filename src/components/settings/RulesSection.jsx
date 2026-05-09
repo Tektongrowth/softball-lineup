@@ -1,15 +1,9 @@
 import { useState } from 'react'
 import { RULE_TEMPLATES } from '../../data/defaultState'
-import { ALL_POSITIONS } from '../../data/config'
+import { ALL_POSITIONS, DEFAULT_INNINGS, inningLabel } from '../../data/config'
 
-const INNINGS_OPTIONS = [
-  { value: 'inn1', label: 'Inning 1' },
-  { value: 'inn2', label: 'Inning 2' },
-  { value: 'inn3', label: 'Inning 3' },
-  { value: 'inn4', label: 'Inning 4' },
-]
 
-function CustomRuleForm({ players, onAdd, onCancel }) {
+function CustomRuleForm({ players, inningKeys = DEFAULT_INNINGS, onAdd, onCancel }) {
   const [template, setTemplate] = useState(RULE_TEMPLATES[0].template)
   const [params, setParams] = useState({})
 
@@ -25,7 +19,7 @@ function CustomRuleForm({ players, onAdd, onCancel }) {
   const canSubmit = def.params.every(p => {
     const v = params[p.key]
     if (!v && v !== 0) return false
-    if (p.type === 'number') return v >= (p.min ?? 1) && v <= (p.max ?? 4)
+    if (p.type === 'number') return v >= (p.min ?? 1) && (!p.max || v <= p.max)
     return String(v).trim().length > 0
   })
 
@@ -101,8 +95,8 @@ function CustomRuleForm({ players, onAdd, onCancel }) {
                   className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-blue-500 outline-none"
                 >
                   <option value="">Select inning…</option>
-                  {INNINGS_OPTIONS.map(i => (
-                    <option key={i.value} value={i.value}>{i.label}</option>
+                  {inningKeys.map(i => (
+                    <option key={i} value={i}>{inningLabel(i)}</option>
                   ))}
                 </select>
               )}
@@ -110,7 +104,7 @@ function CustomRuleForm({ players, onAdd, onCancel }) {
                 <input
                   type="number"
                   min={p.min ?? 1}
-                  max={p.max ?? 4}
+                  max={p.max || undefined}
                   value={params[p.key] ?? ''}
                   onChange={e => setParam(p.key, Number(e.target.value))}
                   className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-blue-500 outline-none"
@@ -156,7 +150,7 @@ function CustomRuleForm({ players, onAdd, onCancel }) {
   )
 }
 
-export function RulesSection({ rules, players, onChange }) {
+export function RulesSection({ rules, players, inningKeys = DEFAULT_INNINGS, onChange }) {
   const [adding, setAdding] = useState(false)
 
   const toggleRule = (id) => {
@@ -242,7 +236,7 @@ export function RulesSection({ rules, players, onChange }) {
 
       {/* Add custom rule */}
       {adding ? (
-        <CustomRuleForm players={players} onAdd={addRule} onCancel={() => setAdding(false)} />
+        <CustomRuleForm players={players} inningKeys={inningKeys} onAdd={addRule} onCancel={() => setAdding(false)} />
       ) : (
         <button
           onClick={() => setAdding(true)}

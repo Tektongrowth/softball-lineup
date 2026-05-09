@@ -127,9 +127,9 @@ export function RosterSection({ players, onChange }) {
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
                       { key: 'canPitch12', label: 'Pitch inn 1–2' },
-                      { key: 'canPitch34', label: 'Pitch inn 3–4' },
+                      { key: 'canPitch34', label: 'Pitch inn 3+' },
                       { key: 'canCatch12', label: 'Catch inn 1–2' },
-                      { key: 'canCatch34', label: 'Catch inn 3–4' },
+                      { key: 'canCatch34', label: 'Catch inn 3+' },
                     ].map(({ key, label }) => (
                       <button key={key}
                         onClick={() => updatePlayer(p.id, { [key]: !p[key] })}
@@ -199,7 +199,7 @@ export function RosterSection({ players, onChange }) {
           onClick={() => setAdding(true)}
           className="w-full py-2.5 rounded-xl border border-dashed border-slate-600 text-slate-500 text-sm hover:border-slate-400 hover:text-slate-300 transition-colors"
         >
-          + Add player
+          + Add player / roster spot
         </button>
       )}
     </div>

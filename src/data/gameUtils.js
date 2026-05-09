@@ -1,3 +1,4 @@
+import { DEFAULT_INNINGS } from './config'
 export function isoToday() {
   const d = new Date()
   const y = d.getFullYear()
@@ -23,7 +24,7 @@ export function gameTitle(game) {
   return date || game.label || ''
 }
 
-export const EMPTY_LINEUP = { inn1: {}, inn2: {}, inn3: {}, inn4: {} }
+export const EMPTY_LINEUP = Object.fromEntries(DEFAULT_INNINGS.map(inn => [inn, {}]))
 
 export function newGameObject({ date, opponent }) {
   return {
