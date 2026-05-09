@@ -19,8 +19,6 @@ function move(arr, from, to) {
 }
 
 export function DepthChartSection({ depthCharts, players, onChange }) {
-  const playerIds = new Set(players.map(p => p.id))
-
   const updateChart = (key, newList) => {
     onChange({ ...depthCharts, [key]: newList })
   }

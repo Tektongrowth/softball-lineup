@@ -11,8 +11,11 @@ const GROUPS = [
 export function RosterSection({ players, onChange }) {
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newNumber, setNewNumber] = useState('')
   const [newGroup, setNewGroup] = useState('A')
   const [editing, setEditing] = useState(null) // player id
+
+  const cleanNumber = (value) => value.replace(/[^0-9]/g, '').slice(0, 3)
 
   const updatePlayer = (id, patch) => {
     onChange(players.map(p => p.id === id ? { ...p, ...patch } : p))
@@ -22,11 +25,13 @@ export function RosterSection({ players, onChange }) {
     if (!newName.trim()) return
     onChange([...players, {
       id: newName.trim(),
+      number: cleanNumber(newNumber),
       group: newGroup || null,
       floater: newGroup === null,
       canPitch12: false, canCatch12: false, canCatch34: false, canPitch34: false,
     }])
     setNewName('')
+    setNewNumber('')
     setAdding(false)
   }
 
@@ -37,7 +42,7 @@ export function RosterSection({ players, onChange }) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-slate-500 px-1 pb-1">
-        Set each player's position group. A player can only be assigned to the infield and outfield positions within their group, unless they're on a pitcher or catcher depth chart.
+        Set each player's jersey number and position group. A player can only be assigned to the infield and outfield positions within their group, unless they're on a pitcher or catcher depth chart.
       </p>
 
       {players.map(p => {
@@ -53,6 +58,7 @@ export function RosterSection({ players, onChange }) {
             >
               <span className={`w-3 h-3 rounded-full flex-shrink-0 ${colors ? colors.dot : 'bg-slate-500'}`} />
               <span className={`font-medium flex-1 ${p.absent ? 'text-slate-400 line-through' : 'text-white'}`}>{p.id}</span>
+              {p.number && <span className="text-[10px] font-bold text-white bg-slate-700 rounded px-1.5 py-0.5">#{p.number}</span>}
               {p.absent && <span className="text-[10px] text-rose-300 bg-rose-500/20 border border-rose-500/40 rounded px-1.5 py-0.5">OUT</span>}
               {p.floater && <span className="text-[10px] text-slate-400 bg-slate-700 rounded px-1.5 py-0.5">floater</span>}
               {p.group && <span className={`text-[10px] rounded px-1.5 py-0.5 border ${colors?.label}`}>{GROUPS.find(g => g.id === p.group)?.label}</span>}
@@ -62,8 +68,22 @@ export function RosterSection({ players, onChange }) {
             {/* Expanded editor */}
             {isEditing && (
               <div className="px-3 pb-3 space-y-3 border-t border-slate-700">
-                {/* Game availability */}
+                {/* Player number */}
                 <div className="pt-2">
+                  <label className="text-xs text-slate-500 mb-2 block" htmlFor={`number-${p.id}`}>Player Number</label>
+                  <input
+                    id={`number-${p.id}`}
+                    type="text"
+                    inputMode="numeric"
+                    value={p.number || ''}
+                    onChange={e => updatePlayer(p.id, { number: cleanNumber(e.target.value) })}
+                    placeholder="Jersey #"
+                    className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none border border-slate-600 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Game availability */}
+                <div>
                   <button
                     onClick={() => updatePlayer(p.id, { absent: !p.absent })}
                     className={`w-full py-2 rounded-lg text-xs border transition-all
@@ -137,14 +157,24 @@ export function RosterSection({ players, onChange }) {
       {/* Add player */}
       {adding ? (
         <div className="bg-slate-800 rounded-xl p-3 space-y-2">
-          <input
-            autoFocus
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addPlayer()}
-            placeholder="Player name"
-            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none border border-slate-600 focus:border-blue-500"
-          />
+          <div className="grid grid-cols-[1fr_88px] gap-2">
+            <input
+              autoFocus
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addPlayer()}
+              placeholder="Player name"
+              className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none border border-slate-600 focus:border-blue-500"
+            />
+            <input
+              value={newNumber}
+              onChange={e => setNewNumber(cleanNumber(e.target.value))}
+              onKeyDown={e => e.key === 'Enter' && addPlayer()}
+              inputMode="numeric"
+              placeholder="#"
+              className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none border border-slate-600 focus:border-blue-500"
+            />
+          </div>
           <div className="grid grid-cols-3 gap-1.5">
             {GROUPS.map(g => {
               const gc = GROUP_COLORS[g.id]

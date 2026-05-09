@@ -12,6 +12,7 @@ export function GameLogModal({ game, players, counts, gameHistory, onFinish, onC
   // What the balance will be AFTER this game is logged
   const allGames  = [...gameHistory, { counts }]
   const newBal    = calcBalance(players, allGames)
+  const displayPlayer = (p) => p.number ? `${p.id} #${p.number}` : p.id
 
   const [scoreUs,   setScoreUs]   = useState('')
   const [scoreThem, setScoreThem] = useState('')
@@ -82,7 +83,7 @@ export function GameLogModal({ game, players, counts, gameHistory, onFinish, onC
               const cum = cumulative[p.id] ?? 0
               return (
                 <div key={p.id} className="flex items-center gap-2 px-2 py-1.5 bg-slate-800 rounded-lg">
-                  <span className="text-white text-sm flex-1">{p.id}</span>
+                  <span className="text-white text-sm flex-1">{displayPlayer(p)}</span>
                   <span className={`text-sm font-bold tabular-nums w-4 text-center ${
                     n === 0 ? 'text-slate-600'
                     : n < 2 ? 'text-amber-400'

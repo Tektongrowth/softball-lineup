@@ -32,6 +32,7 @@ function CustomRuleForm({ players, onAdd, onCancel }) {
   const handleAdd = () => {
     if (!canSubmit) return
     onAdd({
+      // eslint-disable-next-line react-hooks/purity
       id: `custom-${Date.now()}`,
       type: 'custom',
       template,

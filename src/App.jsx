@@ -110,7 +110,9 @@ export default function App() {
         if (data.gameHistory) setGameHistory(data.gameHistory)
         if ('currentGame' in data) setCurrentGame(data.currentGame)
         showSync('Synced')
-      } catch {} finally {
+      } catch {
+        // Ignore transient sync failures during background pulls.
+      } finally {
         if (!cancelled) initialized.current = true
       }
     }
@@ -188,6 +190,8 @@ export default function App() {
   const bench      = getBench(presentLineup, presentPlayers)
   const counts     = getInningCounts(presentLineup, presentPlayers)
   const balance    = calcBalance(presentPlayers, gameHistory)
+  const playerMap  = Object.fromEntries(players.map(p => [p.id, p]))
+  const displayPlayer = (id) => playerMap[id]?.number ? `${id} #${playerMap[id].number}` : id
 
   const handleGenerate = () => {
     if (!currentGame) return
@@ -401,7 +405,7 @@ export default function App() {
                     <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Bench — {INNING_LABELS[activeTab]}</div>
                     <div className="flex flex-wrap gap-1.5">
                       {bench[activeTab].map(pid => (
-                        <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{pid}</span>
+                        <span key={pid} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{displayPlayer(pid)}</span>
                       ))}
                     </div>
                   </div>
@@ -419,7 +423,7 @@ export default function App() {
                       const showBal = hasHistory
                       return (
                         <div key={p.id} className="flex items-center gap-1.5 bg-slate-800 rounded-lg px-2 py-1.5">
-                          <span className="text-white text-xs flex-1 truncate">{p.id}</span>
+                          <span className="text-white text-xs flex-1 truncate">{displayPlayer(p.id)}</span>
                           <span className={`text-xs font-bold tabular-nums ${
                             n === 0 ? 'text-slate-600' : n < 2 ? 'text-amber-400' : n >= 4 ? 'text-emerald-400' : 'text-slate-300'
                           }`}>{n}</span>

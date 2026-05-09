@@ -1,6 +1,6 @@
 import { GROUP_COLORS, POS_COLOR_KEY } from '../data/config'
 
-export function PositionChip({ pos, player, hasError, hasWarning, onClick, locked }) {
+export function PositionChip({ pos, player, number, hasError, hasWarning, onClick, locked }) {
   const colorKey = POS_COLOR_KEY[pos] || 'A'
   const c = GROUP_COLORS[colorKey]
   const empty = !player
@@ -29,7 +29,7 @@ export function PositionChip({ pos, player, hasError, hasWarning, onClick, locke
           {pos}
         </div>
         <div className={`text-xs font-semibold leading-tight whitespace-nowrap ${empty ? 'text-white/25' : 'text-white'}`}>
-          {player || '—'}
+          {player ? (number ? `${player} #${number}` : player) : '—'}
         </div>
       </div>
 

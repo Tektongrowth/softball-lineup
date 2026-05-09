@@ -111,7 +111,7 @@ function PlayerRow({ player, selected, dimmed, onSelect }) {
       ].join(' ')}
     >
       <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colors ? colors.dot : 'bg-slate-500'}`} />
-      <span className="text-white font-medium flex-1">{player.id}</span>
+      <span className="text-white font-medium flex-1">{player.number ? `${player.id} #${player.number}` : player.id}</span>
       {player.floater && <span className="text-[10px] text-slate-400 bg-slate-700 rounded px-1.5 py-0.5">floater</span>}
       {selected && <span className="text-emerald-400 text-xs">✓</span>}
       {player.note && !selected && <span className="text-[10px] text-rose-400">{player.note}</span>}

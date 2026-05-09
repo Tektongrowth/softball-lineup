@@ -42,6 +42,7 @@ export function BattingOrder({ order, players, onChange }) {
   }
 
   const playerById = Object.fromEntries(players.map(p => [p.id, p]))
+  const displayPlayer = (player) => player?.number ? `${player.id} #${player.number}` : player?.id
   const usedCounts = order.reduce((acc, pid) => {
     if (pid) acc[pid] = (acc[pid] || 0) + 1
     return acc
@@ -88,7 +89,7 @@ export function BattingOrder({ order, players, onChange }) {
                   {player ? (
                     <>
                       <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colors ? colors.dot : 'bg-slate-500'}`} />
-                      <span className="text-white text-sm font-medium flex-1">{player.id}</span>
+                      <span className="text-white text-sm font-medium flex-1">{displayPlayer(player)}</span>
                       {dup && <span className="text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded px-1.5 py-0.5">duplicate</span>}
                     </>
                   ) : missingPlayer ? (
@@ -134,7 +135,7 @@ export function BattingOrder({ order, players, onChange }) {
           <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Not in batting order</div>
           <div className="flex flex-wrap gap-1.5">
             {missing.map(id => (
-              <span key={id} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{id}</span>
+              <span key={id} className="text-xs text-slate-400 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700">{displayPlayer(playerById[id]) || id}</span>
             ))}
           </div>
         </div>
@@ -156,6 +157,7 @@ export function BattingOrder({ order, players, onChange }) {
 
 function BatterPicker({ slot, current, players, usedCounts, onSelect, onClose }) {
   const ref = useRef()
+  const displayPlayer = (player) => player?.number ? `${player.id} #${player.number}` : player?.id
 
   useEffect(() => {
     const h = (e) => { if (e.key === 'Escape') onClose() }
@@ -194,7 +196,7 @@ function BatterPicker({ slot, current, players, usedCounts, onSelect, onClose })
                 className={`w-full text-left px-4 py-2.5 flex items-center gap-3 hover:bg-slate-800 transition-colors ${selected ? 'bg-slate-700' : ''}`}
               >
                 <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${colors ? colors.dot : 'bg-slate-500'}`} />
-                <span className="text-white font-medium flex-1">{p.id}</span>
+                <span className="text-white font-medium flex-1">{displayPlayer(p)}</span>
                 {p.floater && <span className="text-[10px] text-slate-400 bg-slate-700 rounded px-1.5 py-0.5">floater</span>}
                 {selected && <span className="text-emerald-400 text-xs">✓</span>}
                 {alreadyBatting && <span className="text-[10px] text-amber-400">already batting</span>}

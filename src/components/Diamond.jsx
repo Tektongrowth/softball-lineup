@@ -81,6 +81,7 @@ export function Diamond({ inningKey, lineup, players, depthCharts, rules, violat
       {ALL_POSITIONS.map(pos => {
         const coord = FIELD_COORDS[pos]
         const player = lineup[pos] || null
+        const playerObj = players.find(p => p.id === player)
         const locked = isLocked(pos)
 
         return (
@@ -92,6 +93,7 @@ export function Diamond({ inningKey, lineup, players, depthCharts, rules, violat
             <PositionChip
               pos={pos}
               player={player}
+              number={playerObj?.number}
               hasError={errorPositions.has(pos)}
               hasWarning={warnPositions.has(pos)}
               locked={locked}
